@@ -24,3 +24,7 @@ Live coding session building a basic nostr  client from scratch.
 
 ## Tech Stack
 HTML, CSS, JavaScript, NodeJS
+
+## Command
+
+- `npm create astro@latest . -- --template minimal --install --no-git --typescript strict`
