@@ -28,3 +28,8 @@ HTML, CSS, JavaScript, NodeJS
 ## Command
 
 - `npm create astro@latest . -- --template minimal --install --no-git --typescript strict`
+
+## Pubkeys
+
+- fiatjaf: https://nostr.at/_@fiatjaf.com
+- basantagoswami: https://nostr.at/basantagoswami@unsigned.in
