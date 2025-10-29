@@ -1,0 +1,80 @@
+---
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Setup - Nostr Demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <div class="card" style="max-width: 600px; margin: 40px auto;">
+        <div class="card-header">Welcome! Let's set up your profile</div>
+
+        <div class="form-group">
+          <label class="form-label">Display Name</label>
+          <input type="text" class="form-input" id="name" placeholder="Your name" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">About</label>
+          <textarea class="form-textarea" id="about" placeholder="Tell us about yourself" style="min-height: 80px;"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Picture URL (optional)</label>
+          <input type="text" class="form-input" id="picture" placeholder="https://..." />
+        </div>
+
+        <button class="btn btn-primary btn-full" id="save">Continue</button>
+        <button class="btn btn-secondary btn-full mt-2" id="skip">Skip for now</button>
+      </div>
+    </div>
+
+    <script>
+      import { RelayPool } from '../lib/relay.js';
+      import { finalizeEvent, createProfileDataEvent } from '../lib/events.js';
+      import { getStoredSecretKey, hexToBytes, isLoggedIn } from '../lib/keys.js';
+      import { getDefaultRelays } from '../lib/nip65.js';
+
+      if (!isLoggedIn()) window.location.href = '/login';
+
+      const $ = (id) => document.getElementById(id);
+
+      $('save').onclick = async () => {
+        const name = $('name').value.trim();
+        const about = $('about').value.trim();
+        const picture = $('picture').value.trim();
+
+        if (!name) {
+          alert('Please enter a name');
+          return;
+        }
+
+        $('save').disabled = true;
+        $('save').textContent = 'Publishing...';
+
+        const metadata = { name, about, picture };
+        const eventTemplate = createProfileDataEvent(metadata);
+        const sk = hexToBytes(getStoredSecretKey());
+        const signed = finalizeEvent(eventTemplate, sk);
+
+        const pool = new RelayPool();
+        const relays = getDefaultRelays();
+        relays.forEach(r => pool.addRelay(r.url));
+
+        await pool.publish(signed);
+
+        localStorage.setItem('setup_complete', 'true');
+        window.location.href = '/';
+      };
+
+      $('skip').onclick = () => {
+        localStorage.setItem('setup_complete', 'true');
+        window.location.href = '/';
+      };
+    </script>
+  </body>
+</html>

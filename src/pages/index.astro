@@ -1,0 +1,138 @@
+---
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Home - Nostr Demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="header">
+      <div class="header-content">
+        <a href="/" class="logo">⚡ Nostr</a>
+        <nav class="nav">
+          <a href="/" class="nav-link active">Home</a>
+          <a href="/profile" class="nav-link">Profile</a>
+          <a href="/settings" class="nav-link">Settings</a>
+          <button class="btn btn-sm btn-danger" id="logout">Logout</button>
+        </nav>
+      </div>
+    </div>
+
+    <div class="container">
+      <div class="card">
+        <textarea class="form-textarea" id="content" placeholder="What's on your mind?"></textarea>
+        <button class="btn btn-primary mt-2" id="post">Post</button>
+      </div>
+
+      <div id="feed"></div>
+
+      <button class="btn btn-secondary btn-full mt-3" id="loadMore">Load More</button>
+    </div>
+
+    <script>
+      import { RelayPool } from '../lib/relay.js';
+      import { finalizeEvent, createTextNote } from '../lib/events.js';
+      import { getCurrentUserPubkey, getStoredSecretKey, hexToBytes, isLoggedIn, logout } from '../lib/keys.js';
+      import { getUserRelays, getDefaultRelays } from '../lib/nip65.js';
+
+      if (!isLoggedIn()) window.location.href = '/login';
+      if (!localStorage.getItem('setup_complete')) window.location.href = '/setup';
+
+      const pool = new RelayPool();
+      const $ = (id) => document.getElementById(id);
+      const seen = new Set();
+      let followList = [];
+      let oldestTimestamp = Math.floor(Date.now() / 1000);
+
+      async function init() {
+        const pubkey = await getCurrentUserPubkey();
+
+        // Load relays
+        let relays;
+        try {
+          relays = await getUserRelays(pubkey);
+        } catch (e) {
+          relays = getDefaultRelays();
+        }
+        relays.forEach(r => pool.addRelay(r.url));
+
+        // Fetch follow list (kind 3)
+        pool.subscribe([{ kinds: [3], authors: [pubkey], limit: 1 }], (event) => {
+          followList = event.tags
+            .filter(tag => tag[0] === 'p')
+            .map(tag => tag[1]);
+
+          // Add self to list
+          followList.push(pubkey);
+
+          // Load initial posts
+          loadPosts();
+        });
+      }
+
+      function loadPosts() {
+        pool.subscribe([{
+          kinds: [1],
+          authors: followList,
+          limit: 20,
+          until: oldestTimestamp
+        }], renderNote);
+      }
+
+      function renderNote(event) {
+        if (seen.has(event.id)) return;
+        seen.add(event.id);
+
+        // Track oldest timestamp for pagination
+        if (event.created_at < oldestTimestamp) {
+          oldestTimestamp = event.created_at;
+        }
+
+        const note = document.createElement('div');
+        note.className = 'note';
+        note.innerHTML = `
+          <div class="note-header">
+            <div class="note-avatar">${event.pubkey.slice(0, 2)}</div>
+            <div class="note-author">
+              <div class="note-pubkey">${event.pubkey.slice(0, 16)}...</div>
+            </div>
+          </div>
+          <div class="note-content">${event.content}</div>
+          <div class="note-actions">
+            <a href="/thread?id=${event.id}" class="note-action">💬 Reply</a>
+          </div>
+        `;
+        $('feed').appendChild(note);
+      }
+
+      init();
+
+      // Post note
+      $('post').onclick = async () => {
+        const content = $('content').value;
+        if (!content) return;
+
+        const eventTemplate = createTextNote(content);
+        const sk = hexToBytes(getStoredSecretKey());
+        const signed = finalizeEvent(eventTemplate, sk);
+
+        await pool.publish(signed);
+        $('content').value = '';
+      };
+
+      // Load more
+      $('loadMore').onclick = () => {
+        loadPosts();
+      };
+
+      // Logout
+      $('logout').onclick = () => {
+        logout();
+        window.location.href = '/login';
+      };
+    </script>
+  </body>
+</html>

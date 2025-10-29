@@ -1,0 +1,113 @@
+---
+const eventId = Astro.url.searchParams.get('id');
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Thread - Nostr Demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="header">
+      <div class="header-content">
+        <a href="/" class="logo">⚡ Nostr</a>
+        <nav class="nav">
+          <a href="/" class="nav-link">Home</a>
+          <a href="/profile" class="nav-link">Profile</a>
+          <a href="/settings" class="nav-link">Settings</a>
+        </nav>
+      </div>
+    </div>
+
+    <div class="container">
+      <a href="/" class="btn btn-secondary btn-sm mb-2">← Back</a>
+
+      <div id="mainNote"></div>
+
+      <div class="card mt-3">
+        <textarea class="form-textarea" id="replyContent" placeholder="Write a reply..."></textarea>
+        <button class="btn btn-primary mt-2" id="replyBtn">Reply</button>
+      </div>
+
+      <div id="replies"></div>
+    </div>
+
+    <script define:vars={{ eventId }}>
+      import { RelayPool } from '../lib/relay.js';
+      import { finalizeEvent, createTextNote } from '../lib/events.js';
+      import { getStoredSecretKey, hexToBytes, isLoggedIn } from '../lib/keys.js';
+      import { getDefaultRelays } from '../lib/nip65.js';
+      import { createReplyTags, parseThread } from '../lib/nip10.js';
+
+      if (!isLoggedIn()) window.location.href = '/login';
+
+      const $ = (id) => document.getElementById(id);
+      const pool = new RelayPool();
+      const relays = getDefaultRelays();
+      relays.forEach(r => pool.addRelay(r.url));
+
+      let mainEvent = null;
+
+      // Load main event
+      pool.subscribe([{ ids: [eventId] }], (event) => {
+        mainEvent = event;
+        const note = document.createElement('div');
+        note.className = 'note';
+        note.innerHTML = `
+          <div class="note-header">
+            <div class="note-avatar">${event.pubkey.slice(0, 2)}</div>
+            <div class="note-author">
+              <div class="note-pubkey">${event.pubkey.slice(0, 16)}...</div>
+            </div>
+          </div>
+          <div class="note-content">${event.content}</div>
+        `;
+        $('mainNote').appendChild(note);
+      });
+
+      // Load replies
+      pool.subscribe([{ kinds: [1], '#e': [eventId] }], (event) => {
+        const thread = parseThread(event);
+
+        const note = document.createElement('div');
+        note.className = 'note thread-reply';
+        note.innerHTML = `
+          <div class="note-header">
+            <div class="note-avatar">${event.pubkey.slice(0, 2)}</div>
+            <div class="note-author">
+              <div class="note-pubkey">${event.pubkey.slice(0, 16)}...</div>
+            </div>
+          </div>
+          <div class="note-content">${event.content}</div>
+        `;
+        $('replies').appendChild(note);
+      });
+
+      // Reply
+      $('replyBtn').onclick = async () => {
+        const content = $('replyContent').value.trim();
+        if (!content || !mainEvent) return;
+
+        const thread = parseThread(mainEvent);
+        const rootId = thread.root ? thread.root.id : mainEvent.id;
+
+        const tags = createReplyTags(mainEvent, rootId);
+        const eventTemplate = {
+          kind: 1,
+          created_at: Math.floor(Date.now() / 1000),
+          tags,
+          content
+        };
+
+        const sk = hexToBytes(getStoredSecretKey());
+        const signed = finalizeEvent(eventTemplate, sk);
+
+        await pool.publish(signed);
+        $('replyContent').value = '';
+        alert('Reply posted!');
+      };
+    </script>
+  </body>
+</html>

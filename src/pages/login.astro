@@ -1,0 +1,82 @@
+---
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Login - Nostr Demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <div class="card" style="max-width: 500px; margin: 80px auto;">
+        <div class="card-header text-center">Welcome to Nostr</div>
+
+        <button class="btn btn-primary btn-full mb-2" id="extension">
+          🔐 Login with Extension
+        </button>
+
+        <button class="btn btn-secondary btn-full mb-2" id="generate">
+          ✨ Generate Keys
+        </button>
+
+        <div id="keyInput" class="hidden">
+          <input type="password" class="form-input mb-2" id="privkey" placeholder="Private key (hex)" />
+          <button class="btn btn-primary btn-full" id="loginKey">Login</button>
+        </div>
+
+        <div id="generated" class="hidden">
+          <div class="alert alert-warning mb-2">⚠️ Save these keys!</div>
+          <input type="text" class="form-input mb-2" id="genPub" readonly />
+          <input type="text" class="form-input mb-2" id="genPriv" readonly />
+          <button class="btn btn-primary btn-full" id="continue">Continue</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      import { generateSecretKey, getPublicKey, hexToBytes, storeSecretKey, storeLoginMethod, hasNostrExtension, getPublicKeyFromExtension } from '../lib/keys.js';
+      import { bytesToHex } from '@noble/hashes/utils';
+      import { npubEncode, nsecEncode } from '../lib/nip19.js';
+
+      const $ = (id) => document.getElementById(id);
+
+      $('extension').onclick = async () => {
+        if (!hasNostrExtension()) return alert('No extension found!');
+        await getPublicKeyFromExtension();
+        storeLoginMethod('extension');
+        localStorage.setItem('setup_complete', 'true'); // Extension users likely already have profile
+        window.location.href = '/';
+      };
+
+      $('generate').onclick = () => {
+        const sk = generateSecretKey();
+        const pk = getPublicKey(sk);
+        const skHex = bytesToHex(sk);
+        $('genPub').value = npubEncode(pk);
+        $('genPriv').value = nsecEncode(skHex);
+        $('generated').classList.remove('hidden');
+
+        // Store hex version internally
+        $('genPriv').dataset.hex = skHex;
+      };
+
+      $('continue').onclick = () => {
+        const skHex = $('genPriv').dataset.hex;
+        storeSecretKey(skHex);
+        storeLoginMethod('generated');
+        window.location.href = '/setup';
+      };
+
+      $('loginKey').onclick = () => {
+        const priv = $('privkey').value;
+        if (!/^[a-f0-9]{64}$/.test(priv)) return alert('Invalid key');
+        storeSecretKey(priv);
+        storeLoginMethod('key');
+        localStorage.setItem('setup_complete', 'true'); // Existing key users likely have profile
+        window.location.href = '/';
+      };
+    </script>
+  </body>
+</html>

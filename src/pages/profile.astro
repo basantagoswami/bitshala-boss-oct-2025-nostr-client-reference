@@ -1,0 +1,74 @@
+---
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Profile - Nostr Demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="header">
+      <div class="header-content">
+        <a href="/" class="logo">⚡ Nostr</a>
+        <nav class="nav">
+          <a href="/" class="nav-link">Home</a>
+          <a href="/profile" class="nav-link active">Profile</a>
+          <a href="/settings" class="nav-link">Settings</a>
+        </nav>
+      </div>
+    </div>
+
+    <div class="container">
+      <div class="profile-header">
+        <div class="profile-avatar" id="avatar">?</div>
+        <div class="profile-name" id="name">Loading...</div>
+        <div class="profile-pubkey" id="pubkey"></div>
+      </div>
+
+      <div id="notes"></div>
+    </div>
+
+    <script>
+      import { RelayPool } from '../lib/relay.js';
+      import { getCurrentUserPubkey, isLoggedIn } from '../lib/keys.js';
+      import { getDefaultRelays } from '../lib/nip65.js';
+      import { npubEncode } from '../lib/nip19.js';
+
+      if (!isLoggedIn()) window.location.href = '/login';
+
+      const $ = (id) => document.getElementById(id);
+      const pool = new RelayPool();
+      const relays = getDefaultRelays();
+      relays.forEach(r => pool.addRelay(r.url));
+
+      async function init() {
+        const pubkey = await getCurrentUserPubkey();
+        $('pubkey').textContent = npubEncode(pubkey);
+        $('avatar').textContent = pubkey.slice(0, 2);
+
+        // Load profile metadata (kind 0)
+        pool.subscribe([{ kinds: [0], authors: [pubkey], limit: 1 }], (event) => {
+          const profile = JSON.parse(event.content);
+          if (profile.name) $('name').textContent = profile.name;
+        });
+
+        // Load user's notes (kind 1)
+        pool.subscribe([{ kinds: [1], authors: [pubkey], limit: 20 }], (event) => {
+          const note = document.createElement('div');
+          note.className = 'note';
+          note.innerHTML = `
+            <div class="note-content">${event.content}</div>
+            <div class="note-actions">
+              <a href="/thread?id=${event.id}" class="note-action">💬 Reply</a>
+            </div>
+          `;
+          $('notes').appendChild(note);
+        });
+      }
+
+      init();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,153 @@
+---
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Settings - Nostr Demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="header">
+      <div class="header-content">
+        <a href="/" class="logo">⚡ Nostr</a>
+        <nav class="nav">
+          <a href="/" class="nav-link">Home</a>
+          <a href="/profile" class="nav-link">Profile</a>
+          <a href="/settings" class="nav-link active">Settings</a>
+        </nav>
+      </div>
+    </div>
+
+    <div class="container">
+      <div class="card">
+        <div class="card-header">Profile Settings</div>
+
+        <div class="form-group">
+          <label class="form-label">Display Name</label>
+          <input type="text" class="form-input" id="name" placeholder="Your name" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">About</label>
+          <textarea class="form-textarea" id="about" style="min-height: 80px;"></textarea>
+        </div>
+
+        <button class="btn btn-primary" id="saveProfile">Update Profile</button>
+      </div>
+
+      <div class="card">
+        <div class="card-header">Default Relays</div>
+        <p class="text-muted text-sm mb-2">These are used when you don't have your own relay list</p>
+        <ul class="relay-list" id="defaultRelays"></ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">Your Network (NIP-65)</div>
+
+        <div class="form-group">
+          <input type="text" class="form-input" id="relayUrl" placeholder="wss://relay.example.com" />
+          <button class="btn btn-primary mt-2" id="addRelay">Add Relay</button>
+        </div>
+
+        <ul class="relay-list" id="relayList"></ul>
+
+        <button class="btn btn-primary mt-3" id="publish">Publish Relay List</button>
+      </div>
+    </div>
+
+    <script>
+      import { RelayPool } from '../lib/relay.js';
+      import { finalizeEvent, createRelayListEvent, createProfileDataEvent } from '../lib/events.js';
+      import { getCurrentUserPubkey, getStoredSecretKey, hexToBytes, isLoggedIn } from '../lib/keys.js';
+      import { getUserRelays, getDefaultRelays } from '../lib/nip65.js';
+
+      if (!isLoggedIn()) window.location.href = '/login';
+
+      const $ = (id) => document.getElementById(id);
+      const relays = [];
+      let pool;
+
+      async function init() {
+        const pubkey = await getCurrentUserPubkey();
+        pool = new RelayPool();
+
+        // Show default relays
+        const defaults = getDefaultRelays();
+        defaults.forEach(r => {
+          const li = document.createElement('li');
+          li.className = 'relay-item';
+          li.innerHTML = `<span class="relay-url">${r.url}</span>`;
+          $('defaultRelays').appendChild(li);
+        });
+
+        // Load user's relay list
+        try {
+          const userRelays = await getUserRelays(pubkey);
+          userRelays.forEach(r => {
+            relays.push(r);
+            renderRelay(r);
+            pool.addRelay(r.url);
+          });
+        } catch (e) {
+          defaults.forEach(r => pool.addRelay(r.url));
+        }
+
+        // Load profile
+        pool.subscribe([{ kinds: [0], authors: [pubkey], limit: 1 }], (event) => {
+          const profile = JSON.parse(event.content);
+          if (profile.name) $('name').value = profile.name;
+          if (profile.about) $('about').value = profile.about;
+        });
+      }
+
+      function renderRelay(relay) {
+        const li = document.createElement('li');
+        li.className = 'relay-item';
+        li.innerHTML = `
+          <span class="relay-url">${relay.url}</span>
+          <div class="relay-status">
+            ${relay.read ? '<span class="relay-badge read">Read</span>' : ''}
+            ${relay.write ? '<span class="relay-badge write">Write</span>' : ''}
+          </div>
+        `;
+        $('relayList').appendChild(li);
+      }
+
+      $('saveProfile').onclick = async () => {
+        const name = $('name').value.trim();
+        const about = $('about').value.trim();
+
+        const metadata = { name, about };
+        const eventTemplate = createProfileDataEvent(metadata);
+        const sk = hexToBytes(getStoredSecretKey());
+        const signed = finalizeEvent(eventTemplate, sk);
+
+        await pool.publish(signed);
+        alert('Profile updated!');
+      };
+
+      $('addRelay').onclick = () => {
+        const url = $('relayUrl').value.trim();
+        if (!url) return;
+
+        const relay = { url, read: true, write: true };
+        relays.push(relay);
+        renderRelay(relay);
+        $('relayUrl').value = '';
+      };
+
+      $('publish').onclick = async () => {
+        const eventTemplate = createRelayListEvent(relays);
+        const sk = hexToBytes(getStoredSecretKey());
+        const signed = finalizeEvent(eventTemplate, sk);
+
+        await pool.publish(signed);
+        alert('Relay list published!');
+      };
+
+      init();
+    </script>
+  </body>
+</html>
